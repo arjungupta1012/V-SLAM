@@ -25,22 +25,21 @@
    cd V-SLAM
    ```
 
-2. **Install Required Packages**
+2. **Run the System Setup Script**
 
-   Make sure you have the necessary packages installed. You might need to install them using `pip` or `apt-get`.
+   The `setup.sh` script will install system dependencies and configure the environment. Make sure to review the script for any customizations you might need.
 
    ```bash
-   sudo apt-get update
-   sudo apt-get install python3-pip ros-noetic-mavros ros-noetic-mavros-extras
-   pip3 install -r requirements.txt
+   chmod +x setup.sh
+   ./setup.sh
    ```
 
-3. **Set Up MAVProxy**
+### 2. Install Python Dependencies
 
-   Install MAVProxy if you haven't already:
+   The `requirements.txt` file includes Python packages necessary for the project. Install them using `pip`:
 
    ```bash
-   pip3 install MAVProxy
+   pip3 install -r requirements.txt
    ```
 
 ## Configuration and Usage
@@ -90,8 +89,6 @@
 ## Contribution
 
 Feel free to open issues or pull requests if you encounter problems or have improvements to suggest. Contributions are welcome!
-
-
 
 ## Contact
 

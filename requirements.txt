@@ -1,0 +1,6 @@
+mavproxy
+pymavlink
+rospy
+numpy
+opencv-python
+

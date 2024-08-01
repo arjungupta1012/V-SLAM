@@ -96,4 +96,3 @@ Feel free to open issues or pull requests if you encounter problems or have impr
 ## Contact
 
 For questions or support, please contact [arjun222gupta@gmail.com](mailto:arjun222gupta@gmail.com).
-```

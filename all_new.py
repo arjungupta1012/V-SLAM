@@ -1,31 +1,39 @@
 #!/usr/bin/env python3
 import rospy,cv2,time,dronekit,math,os
 from cv_bridge import CvBridge
-from sensor_msgs.msg import Image,Imu
+from sensor_msgs.msg import Image,Imu,Range
 from std_msgs.msg import Float64
 from nav_msgs.msg import Odometry
 from mavros_msgs.msg import State, PositionTarget
 from mavros_msgs.srv import CommandBool, SetMode
 from dronekit import connect, VehicleMode, LocationGlobalRelative, LocationGlobal, Command
 from pymavlink import mavutil
-from nav_msgs.msg import Odometry
 
 class Drone:
 
 
     def __init__(self):
         rospy.init_node('DRONE', anonymous=True)
+
+        self.vehicle = connect('127.0.0.1:14560')  
+
         self.mavros_sub = rospy.Subscriber('/mavros/state', State, self.state_callback)
         self.odom_sub = rospy.Subscriber("/camera/imu", Imu, self.imudata_callback) 
-        self.alt_sub = rospy.Subscriber("/rtabmap/odom", Odometry, self.altitude_callback) 
-        self.vehicle = connect('127.0.0.1:14560', wait_ready=True)  # Replace with your connection string
+        self.alt_depth_sub = rospy.Subscriber("/rtabmap/odom", Odometry, self.altitude_depth_callback) 
+        self.alt_lidar_sub = rospy.Subscriber("/mavros/distance_sensor/rangefinder_pub", Range, self.altitude_lidar_callback )
 
 
 
         self.counter = 0
-        self.state=None
-        self.imu=None
-        self.altitude=0
+        self.state = None
+        self.imu = None
+        self.altitude_depth = 0
+        self.altitude_lidar = 0
+
+        self.DEFAULT_TAKEOFF_THRUST = 0.65
+        self.SMOOTH_TAKEOFF_THRUST = 0.59
+        self.HOVER_THRUST = 0.57
+        self.WAIT_TIME = 1
         
 
 ############################################################################################################################################
@@ -45,12 +53,17 @@ class Drone:
         #rospy.loginfo("IMU Data Received:\n%s", data)
 
 
-    def altitude_callback(self,msg):                        # Altitude from Downward Facing Lidar
-        self.altitude=msg.pose.pose.position.z
-        #rospy.loginfo("Altitude Data Received:\n%s", data)
+    def altitude_depth_callback(self,msg):                                  # Altitude from Depth camera 
+        self.altitude_depth=msg.pose.pose.position.z
+        #rospy.loginfo("Altitude Data Received:\n%s", self.altitude_depth)
+
+    def altitude_lidar_callback(self,msg):                                  # Altitude from TF Luna LIDAR (Downward Facing)
+        self.altitude_lidar=msg.range
+        # rospy.loginfo("Altitude Data Received:\n%s", self.altitude_lidar)
+
 
 ############################################################################################################################################
-########################################################### DRONEKIT FUNCTIONS #############################################################
+########################################################### SERVICE CALLS ##################################################################
 ############################################################################################################################################
 
     def arm_drone(self):
@@ -77,38 +90,11 @@ class Drone:
         except rospy.ServiceException as e:
             rospy.logerr("Service call failed: %s", e)
 
-    def arm_and_takeoff_nogps(self,aTargetAltitude):        # Arms vehicle and fly to aTargetAltitude without GPS data.
 
-        ##### CONSTANTS #####
-        DEFAULT_TAKEOFF_THRUST = 0.65
-        SMOOTH_TAKEOFF_THRUST = 0.57
-        WAIT_TIME = 1
+############################################################################################################################################
+########################################################### DRONEKIT FUNCTIONS #############################################################
+############################################################################################################################################
 
-   
-        
-        self.vehicle.mode = VehicleMode("GUIDED_NOGPS")
-        detector.set_mode('GUIDED_NOGPS')
-        
-        self.vehicle.armed = True
-        detector.arm_drone()
-        
-        print("Taking off!")
-        thrust = DEFAULT_TAKEOFF_THRUST
-        while True:
-            current_altitude = self.vehicle.rangefinder.distance
-            print(" Altitude: %f  Desired: %f" %(current_altitude, aTargetAltitude))
-            if current_altitude >= aTargetAltitude*0.95: # Trigger just below target alt.
-                print("Reached target altitude")
-            self.counter = self.counter + 1
-            if self.counter >= 70:
-                self.vehicle.mode = VehicleMode("LAND")
-            if current_altitude>= aTargetAltitude + 1:
-                self.vehicle.mode = VehicleMode("LAND")
-            elif current_altitude >= aTargetAltitude*0.75:
-                thrust = SMOOTH_TAKEOFF_THRUST
-            print("thrust = ", thrust)
-            detector.set_attitude(thrust = thrust)
-            time.sleep(0.2)
 
     def send_attitude_target(self, roll_angle = 0.0, pitch_angle = 0.0,
                              yaw_angle = None, yaw_rate = 0.0, use_yaw_rate = False,
@@ -173,6 +159,43 @@ class Drone:
             0, 0, 0, # x, y, z acceleration (not supported yet, ignored in GCS_Mavlink)
             0, 0)    # yaw, yaw_rate (not supported yet, ignored in GCS_Mavlink)
         self.vehicle.send_mavlink(message)
+
+    def arm_and_takeoff_nogps(self,aTargetAltitude):        # Arms vehicle and fly to aTargetAltitude without GPS data.
+
+        self.vehicle.mode = VehicleMode("GUIDED_NOGPS")
+        detector.set_mode('GUIDED_NOGPS')
+        
+        self.vehicle.armed = True
+        detector.arm_drone()
+        
+        print("Taking off!")
+        thrust = self.DEFAULT_TAKEOFF_THRUST
+        while self.counter < 70:
+
+            self.counter = self.counter + 1
+            current_altitude = self.altitude_lidar
+            print(" Altitude: %f  Desired: %f" %(current_altitude, aTargetAltitude))
+
+            if current_altitude >= aTargetAltitude*0.95: # Trigger just below target alt.
+                print("Reached target altitude")
+                thrust = self.HOVER_THRUST
+
+            elif current_altitude >= aTargetAltitude*0.75:
+                thrust = self.SMOOTH_TAKEOFF_THRUST
+
+
+            if current_altitude>= aTargetAltitude + 1:
+                detector.set_mode('LAND')
+                self.vehicle.mode = VehicleMode("LAND")
+                
+
+            print("thrust = ", thrust)
+            detector.set_attitude(thrust = thrust)
+            time.sleep(0.2)
+
+        detector.set_mode('LAND')
+        self.vehicle.mode = VehicleMode("LAND")
+
 
     def aftertakeoff(self):
         time.sleep(10)
